@@ -1,0 +1,56 @@
+# Keeps this launch copy identical to the courses in the main repository. It pulls; nothing in
+# the main repository needs a token or a secret to feed it. Edit the courses there, not here:
+# anything changed here under a synced path is overwritten on the next run. Run it by hand from
+# the Actions tab (workflow_dispatch) after a change lands in the main repository.
+name: sync from the main repository
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"   # every six hours
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency: sync
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mirror
+      - uses: actions/checkout@v4
+        with:
+          repository: TarrySingh/Artificial-Intelligence-Deep-Learning-Machine-Learning-Tutorials
+          ref: master
+          path: source
+          filter: blob:none
+          sparse-checkout: |
+            lessons
+            programmes
+            flagships
+            tools
+            brand
+            binder
+            .devcontainer
+      - name: copy the courses across
+        run: |
+          set -euo pipefail
+          for p in lessons programmes flagships tools brand binder .devcontainer; do
+            rsync -a --delete "source/$p/" "mirror/$p/"
+          done
+          for f in requirements.txt QUALITY.md LICENSE NOTICE .gitignore; do
+            cp "source/$f" "mirror/$f"
+          done
+          echo "SOURCE_SHA=$(git -C source rev-parse --short HEAD)" >> "$GITHUB_ENV"
+      - name: commit if anything changed
+        working-directory: mirror
+        run: |
+          git add -A
+          if git diff --cached --quiet; then echo "already in sync"; exit 0; fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "Sync from the main repository at ${SOURCE_SHA}"
+          git push
